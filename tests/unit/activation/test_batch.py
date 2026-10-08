@@ -75,11 +75,11 @@ def test_batch_tkinter_generation(tmp_path, tcl_lib, tk_lib, present) -> None:
 
     # THEN
     # PKG_CONFIG_PATH is always set
-    assert '@if defined PKG_CONFIG_PATH @set "_OLD_PKG_CONFIG_PATH=%PKG_CONFIG_PATH%"' in activate_content
+    assert '@if defined PKG_CONFIG_PATH @set "_OLD_PKG_CONFIG_PATH_%_VENV_LVL%=%PKG_CONFIG_PATH%"' in activate_content
     assert '@set "PKG_CONFIG_PATH=%VIRTUAL_ENV%\\lib\\pkgconfig;%PKG_CONFIG_PATH%"' in activate_content
-    assert '@if defined _OLD_PKG_CONFIG_PATH @set "PKG_CONFIG_PATH=%_OLD_PKG_CONFIG_PATH%"' in deactivate_content
-    assert "@if not defined _OLD_PKG_CONFIG_PATH @set PKG_CONFIG_PATH=" in deactivate_content
-    assert "@set _OLD_PKG_CONFIG_PATH=" in deactivate_content
+    assert "@if defined _OLD_PKG_CONFIG_PATH_%_VENV_LVL% @goto :__VENV_RESTORE_PKG" in deactivate_content
+    assert "@set PKG_CONFIG_PATH=" in deactivate_content
+    assert '@set "_OLD_PKG_CONFIG_PATH_%_VENV_LVL%="' in deactivate_content
 
     if present:
         assert '@if NOT "C:\\tcl"=="" @set "TCL_LIBRARY=C:\\tcl"' in activate_content

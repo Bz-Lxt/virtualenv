@@ -41,8 +41,8 @@ class NushellActivator(ViaTemplateActivator):
             "__VIRTUAL_ENV__": str(creator.dest),
             "__VIRTUAL_NAME__": creator.env_name,
             "__BIN_NAME__": str(creator.bin_dir.relative_to(creator.dest)),
-            "__TCL_LIBRARY__": getattr(creator.interpreter, "tcl_lib", None) or "",
-            "__TK_LIBRARY__": getattr(creator.interpreter, "tk_lib", None) or "",
+            "__TCL_LIBRARY__": self.quote(tcl) if (tcl := getattr(creator.interpreter, "tcl_lib", None)) else '""',
+            "__TK_LIBRARY__": self.quote(tk) if (tk := getattr(creator.interpreter, "tk_lib", None)) else '""',
         }
 
 

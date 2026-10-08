@@ -1,30 +1,78 @@
+@REM Roll back only the most recently activated environment layer. When another
+@REM environment is still active underneath, its state is restored instead.
+@if not defined _VENV_DEPTH @goto :EOF
+@set "_VENV_LVL=%_VENV_DEPTH%"
+
+@REM Don't use () to avoid problems with them in %PATH%
+@if defined _OLD_VIRTUAL_PROMPT_%_VENV_LVL% @goto :__VENV_RESTORE_PROMPT
+@set "PROMPT="
+@goto :__VENV_PROMPT_DONE
+:__VENV_RESTORE_PROMPT
+@call set "PROMPT=%%_OLD_VIRTUAL_PROMPT_%_VENV_LVL%%%"
+@set "_OLD_VIRTUAL_PROMPT_%_VENV_LVL%="
+:__VENV_PROMPT_DONE
+
+@if defined _OLD_VIRTUAL_PYTHONHOME_%_VENV_LVL% @goto :__VENV_RESTORE_HOME
+@set PYTHONHOME=
+@goto :__VENV_HOME_DONE
+:__VENV_RESTORE_HOME
+@call set "PYTHONHOME=%%_OLD_VIRTUAL_PYTHONHOME_%_VENV_LVL%%%"
+@set "_OLD_VIRTUAL_PYTHONHOME_%_VENV_LVL%="
+:__VENV_HOME_DONE
+
+@if defined _OLD_VIRTUAL_TCL_LIBRARY_%_VENV_LVL% @goto :__VENV_RESTORE_TCL
+@if defined _VENV_TCLM_%_VENV_LVL% @goto :__VENV_UNSET_TCL
+@goto :__VENV_TCL_DONE
+:__VENV_UNSET_TCL
+@set TCL_LIBRARY=
+@goto :__VENV_TCL_DONE
+:__VENV_RESTORE_TCL
+@call set "TCL_LIBRARY=%%_OLD_VIRTUAL_TCL_LIBRARY_%_VENV_LVL%%%"
+@set "_OLD_VIRTUAL_TCL_LIBRARY_%_VENV_LVL%="
+:__VENV_TCL_DONE
+@set "_VENV_TCLM_%_VENV_LVL%="
+
+@if defined _OLD_VIRTUAL_TK_LIBRARY_%_VENV_LVL% @goto :__VENV_RESTORE_TK
+@if defined _VENV_TKM_%_VENV_LVL% @goto :__VENV_UNSET_TK
+@goto :__VENV_TK_DONE
+:__VENV_UNSET_TK
+@set TK_LIBRARY=
+@goto :__VENV_TK_DONE
+:__VENV_RESTORE_TK
+@call set "TK_LIBRARY=%%_OLD_VIRTUAL_TK_LIBRARY_%_VENV_LVL%%%"
+@set "_OLD_VIRTUAL_TK_LIBRARY_%_VENV_LVL%="
+:__VENV_TK_DONE
+@set "_VENV_TKM_%_VENV_LVL%="
+
+@if defined _OLD_PKG_CONFIG_PATH_%_VENV_LVL% @goto :__VENV_RESTORE_PKG
+@set PKG_CONFIG_PATH=
+@goto :__VENV_PKG_DONE
+:__VENV_RESTORE_PKG
+@call set "PKG_CONFIG_PATH=%%_OLD_PKG_CONFIG_PATH_%_VENV_LVL%%%"
+@set "_OLD_PKG_CONFIG_PATH_%_VENV_LVL%="
+:__VENV_PKG_DONE
+
+@call set "PATH=%%_OLD_VIRTUAL_PATH_%_VENV_LVL%%%"
+@set "_OLD_VIRTUAL_PATH_%_VENV_LVL%="
+
 @set VIRTUAL_ENV=
 @set VIRTUAL_ENV_PROMPT=
 
-@REM Don't use () to avoid problems with them in %PATH%
-@if not defined _OLD_VIRTUAL_PROMPT @goto ENDIFVPROMPT
-    @set "PROMPT=%_OLD_VIRTUAL_PROMPT%"
-    @set _OLD_VIRTUAL_PROMPT=
-:ENDIFVPROMPT
+@set /a "_VENV_DEPTH=_VENV_DEPTH-1" > nul
+@if not "%_VENV_DEPTH%"=="0" @goto :__VENV_OUTER
+@set _VENV_DEPTH=
+@set _VENV_LVL=
+@goto :EOF
 
-@if not defined _OLD_VIRTUAL_PYTHONHOME @goto ENDIFVHOME
-    @set "PYTHONHOME=%_OLD_VIRTUAL_PYTHONHOME%"
-    @set _OLD_VIRTUAL_PYTHONHOME=
-:ENDIFVHOME
+:__VENV_OUTER
+@if not defined _VIRTUAL_ENV_%_VENV_LVL% @goto :__VENV_OUTER_VENV_DONE
+@call set "VIRTUAL_ENV=%%_VIRTUAL_ENV_%_VENV_LVL%%%"
+@set "_VIRTUAL_ENV_%_VENV_LVL%="
+:__VENV_OUTER_VENV_DONE
 
-@if defined _OLD_VIRTUAL_TCL_LIBRARY @set "TCL_LIBRARY=%_OLD_VIRTUAL_TCL_LIBRARY%"
-@if not defined _OLD_VIRTUAL_TCL_LIBRARY @set TCL_LIBRARY=
-@set _OLD_VIRTUAL_TCL_LIBRARY=
+@if not defined _VIRTUAL_ENV_PROMPT_%_VENV_LVL% @goto :__VENV_OUTER_VENVP_DONE
+@call set "VIRTUAL_ENV_PROMPT=%%_VIRTUAL_ENV_PROMPT_%_VENV_LVL%%%"
+@set "_VIRTUAL_ENV_PROMPT_%_VENV_LVL%="
+:__VENV_OUTER_VENVP_DONE
 
-@if defined _OLD_VIRTUAL_TK_LIBRARY @set "TK_LIBRARY=%_OLD_VIRTUAL_TK_LIBRARY%"
-@if not defined _OLD_VIRTUAL_TK_LIBRARY @set TK_LIBRARY=
-@set _OLD_VIRTUAL_TK_LIBRARY=
-
-@if defined _OLD_PKG_CONFIG_PATH @set "PKG_CONFIG_PATH=%_OLD_PKG_CONFIG_PATH%"
-@if not defined _OLD_PKG_CONFIG_PATH @set PKG_CONFIG_PATH=
-@set _OLD_PKG_CONFIG_PATH=
-
-@if not defined _OLD_VIRTUAL_PATH @goto ENDIFVPATH
-    @set "PATH=%_OLD_VIRTUAL_PATH%"
-    @set _OLD_VIRTUAL_PATH=
-:ENDIFVPATH
+@set _VENV_LVL=

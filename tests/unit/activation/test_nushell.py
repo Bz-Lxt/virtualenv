@@ -49,21 +49,20 @@ def test_nushell_tkinter_generation(tmp_path) -> None:
     assert "let new_pkg_config_path = " in content
     assert "PKG_CONFIG_PATH: $new_pkg_config_path" in content
 
-    expected_tcl = f"let $new_env = $new_env | insert TCL_LIBRARY {quoted_tcl_path}"
-    expected_tk = f"let $new_env = $new_env | insert TK_LIBRARY {quoted_tk_path}"
+    # TCL/TK are exported only when the environment actually provides a path;
+    # the value quoted as a nushell raw string and the activation is gated on
+    # the embedded value being non-empty.
+    assert f"let tcl_library = {quoted_tcl_path}" in content
+    assert "if (not ($tcl_library | is-empty))" in content
+    assert "insert TCL_LIBRARY $tcl_library" in content
+    assert f"let tk_library = {quoted_tk_path}" in content
+    assert "if (not ($tk_library | is-empty))" in content
+    assert "insert TK_LIBRARY $tk_library" in content
 
-    assert expected_tcl in content
-    assert expected_tk in content
-
-    # overlay hide is a parser keyword: a def body would fail at parse time because the overlay doesn't exist yet
-    # when the def is compiled. The alias defers that check to call time, when the overlay is active.
-    assert "export alias deactivate = overlay hide activate" in content
-    # nushell shows one line of context before the error site, so placing the hint comment directly above the alias
-    # makes it appear in the error output users see when they activate via `use *` or a custom name (gh-3103).
-    lines = content.splitlines()
-    alias_idx = next(i for i, line in enumerate(lines) if "export alias deactivate" in line)
-    assert alias_idx > 0
-    assert "overlay use activate.nu" in lines[alias_idx - 1]
+    # Layered deactivation is an env-aware command: it pops the most recent
+    # activation layer and restores the captured snapshot.
+    assert "export def --env deactivate [--non-destructive]" in content
+    assert "export alias deactivate = overlay hide activate" not in content
 
 
 def test_nushell(activation_tester_class, activation_tester) -> None:
@@ -77,10 +76,6 @@ def test_nushell(activation_tester_class, activation_tester) -> None:
         def print_prompt(self) -> str:
             return r"print $env.VIRTUAL_PREFIX"
 
-        def assert_tcl_tk_library(self, before, activated, deactivated, raw) -> None:
-            # activate.nu never sets TCL_LIBRARY or TK_LIBRARY: its `let $new_env` inside `if` only shadows the variable
-            assert before == activated == deactivated, raw
-
         def activate_call(self, script):
             # Commands are called without quotes in Nushell
             cmd = self.activate_cmd
@@ -90,11 +85,11 @@ def test_nushell(activation_tester_class, activation_tester) -> None:
     activation_tester(Nushell)
 
 
-def test_nushell_deactivate_errors(tmp_path: Path) -> None:
-    """Regression for gh-3103: both misuse patterns give actionable inline errors.
+def test_nushell_activation_modes(tmp_path: Path) -> None:
+    """Behaviour of the three loading styles.
 
-    `^nu | complete` captures stderr from child invocations without aborting the outer script, so both cases run in a
-    single subprocess call.
+    `source` is rejected with an actionable error. Both `use *` and a named overlay activate the environment and
+    `deactivate` restores it (the stack lives in `$env`, so the overlay name is irrelevant to deactivation).
 
     """
     nu = which("nu")
@@ -107,14 +102,15 @@ def test_nushell_deactivate_errors(tmp_path: Path) -> None:
     # `to nuon` re-quotes the path so it remains valid nushell syntax after string interpolation.
     script = f"""\
 let path = {quoted}
-let r1 = (^nu --commands $"use ($path | to nuon) *; deactivate" | complete)
-if ($r1.exit_code == 0) {{ error make {{ msg: "expected deactivate to fail for use-star" }} }}
-if not ("not an active overlay" in $r1.stderr) {{ error make {{ msg: "overlay error missing" }} }}
-if not ("overlay use activate.nu" in $r1.stderr) {{ error make {{ msg: "hint missing for use-star" }} }}
-let r2 = (^nu --commands $"overlay use ($path | to nuon) as myenv; deactivate" | complete)
-if ($r2.exit_code == 0) {{ error make {{ msg: "expected deactivate to fail for custom name" }} }}
-if not ("not an active overlay" in $r2.stderr) {{ error make {{ msg: "overlay error missing" }} }}
-if not ("overlay hide NAME" in $r2.stderr) {{ error make {{ msg: "hint missing for custom name" }} }}
+let r1 = (^nu --commands $"source ($path | to nuon)" | complete)
+if ($r1.exit_code == 0) {{ error make {{ msg: "expected source to fail" }} }}
+if not ("meant to be used with `overlay use`" in $r1.stderr) {{ error make {{ msg: "source hint missing" }} }}
+let r2 = (^nu --commands $"use ($path | to nuon) *; deactivate; print ($env | get --optional VIRTUAL_ENV | to json)" | complete)
+if ($r2.exit_code != 0) {{ error make {{ msg: $"use-star failed: ($r2.stderr)" }} }}
+if ($r2.stdout | str trim) != "null" {{ error make {{ msg: $"use-star did not restore env: ($r2.stdout)" }} }}
+let r3 = (^nu --commands $"overlay use ($path | to nuon) as myenv; deactivate; print ($env | get --optional VIRTUAL_ENV | to json)" | complete)
+if ($r3.exit_code != 0) {{ error make {{ msg: $"named overlay failed: ($r3.stderr)" }} }}
+if ($r3.stdout | str trim) != "null" {{ error make {{ msg: $"named overlay did not restore env: ($r3.stdout)" }} }}
 """
     result = subprocess.run(
         [nu, "--commands", script], capture_output=True, text=True, encoding="utf-8", timeout=60, check=False

@@ -2,6 +2,12 @@
 # - Activate with `overlay use activate.nu`
 # - Deactivate with `deactivate`, as usual
 #
+# Environments can be activated several times in the same session: each
+# activation pushes a layer on an internal stack and `deactivate` only pops
+# the most recent layer. PATH, the prompt and the managed environment
+# variables are restored losslessly, including the distinction between
+# variables that were unset, empty or non-empty before activation.
+#
 # To customize the overlay name, call `overlay use activate.nu as foo`, but then `deactivate` won't work —
 # you'd need to run `overlay hide foo` manually. Do not activate with `use activate.nu *`; that does not
 # create an overlay and deactivation will fail.
@@ -32,7 +38,7 @@ export-env {
     }
 
     def has-env [...names] {
-        $names | each {|n| $n in $env } | all {|i| $i }
+        $names | each {|n| ($n in $env) and (($env | get --optional $n) != null) } | all {|i| $i }
     }
 
     def is-env-true [name: string] {
@@ -65,14 +71,45 @@ export-env {
     } else {
         $'($venv_pkg_config_path)(char esep)($old_pkg_config_path)'
     }
+
+    # Snapshot the current environment before touching it. Nushell re-using the
+    # same overlay name does not keep the intermediate states, so the stack is
+    # maintained explicitly; the final deactivate hides the overlay itself.
+    let old_prompt_command = ($env | get --optional PROMPT_COMMAND)
+    let old_virtual_prefix = ($env | get --optional VIRTUAL_PREFIX)
+    let snapshot = {
+        path_name: $path_name,
+        path: ($env | get $path_name),
+        pythonhome_present: (has-env 'PYTHONHOME'),
+        pythonhome: ($env | get --optional PYTHONHOME),
+        pkg_config_path_present: (has-env 'PKG_CONFIG_PATH'),
+        pkg_config_path: $old_pkg_config_path,
+        tcl_library_present: (has-env 'TCL_LIBRARY'),
+        tcl_library: ($env | get --optional TCL_LIBRARY),
+        tk_library_present: (has-env 'TK_LIBRARY'),
+        tk_library: ($env | get --optional TK_LIBRARY),
+        virtual_env_present: (has-env 'VIRTUAL_ENV'),
+        virtual_env: ($env | get --optional VIRTUAL_ENV),
+        virtual_env_prompt_present: (has-env 'VIRTUAL_ENV_PROMPT'),
+        virtual_env_prompt: ($env | get --optional VIRTUAL_ENV_PROMPT),
+        prompt_command_present: (has-env 'PROMPT_COMMAND'),
+        prompt_command: $old_prompt_command,
+        virtual_prefix_present: (has-env 'VIRTUAL_PREFIX'),
+        virtual_prefix: $old_virtual_prefix,
+    }
+    let virtualenv_stack = ($env | get --optional _VIRTUAL_ENV_STACK | default [])
+    $env._VIRTUAL_ENV_STACK = ($virtualenv_stack | append $snapshot)
+
     let new_env = { $path_name: $new_path VIRTUAL_ENV: $virtual_env VIRTUAL_ENV_PROMPT: $virtual_env_prompt PKG_CONFIG_PATH: $new_pkg_config_path }
+    if (has-env 'PYTHONHOME') {
+        hide-env PYTHONHOME
+    }
     if (has-env 'TCL_LIBRARY')  {
         let $new_env = $new_env | insert TCL_LIBRARY __TCL_LIBRARY__
     }
     if (has-env 'TK_LIBRARY')  {
         let $new_env = $new_env | insert TK_LIBRARY __TK_LIBRARY__
     }
-    let old_prompt_command = if (has-env 'PROMPT_COMMAND') { $env.PROMPT_COMMAND } else { '' }
     let new_env = if (is-env-true 'VIRTUAL_ENV_DISABLE_PROMPT') {
         $new_env
     } else {
@@ -91,6 +128,44 @@ export-env {
     load-env $new_env
 }
 
+# Pop one activation layer, restoring the snapshot captured for it. Nushell
+# parser keywords (such as `overlay hide`) cannot run from inside a command
+# definition, so the overlay itself and its commands stay loaded once created;
+# after the last layer is popped the environment is fully restored to its
+# pre-activation state and these commands simply become inert (the overlay can
+# still be removed manually with `overlay hide activate`).
+export def --env deactivate [--non-destructive] {
+    let virtualenv_stack = ($env | get --optional _VIRTUAL_ENV_STACK | default [])
+    if ($virtualenv_stack | is-empty) {
+        return
+    }
+
+    let depth = ($virtualenv_stack | length)
+    let layer = ($virtualenv_stack | last)
+    let remaining = ($virtualenv_stack | first ($depth - 1))
+
+    if $layer.path_name == "PATH" {
+        $env.PATH = $layer.path
+    } else {
+        $env.Path = $layer.path
+    }
+
+    if $layer.pythonhome_present { $env.PYTHONHOME = $layer.pythonhome } else { $env.PYTHONHOME = null }
+    if $layer.pkg_config_path_present { $env.PKG_CONFIG_PATH = $layer.pkg_config_path } else { $env.PKG_CONFIG_PATH = null }
+    if $layer.tcl_library_present { $env.TCL_LIBRARY = $layer.tcl_library } else { $env.TCL_LIBRARY = null }
+    if $layer.tk_library_present { $env.TK_LIBRARY = $layer.tk_library } else { $env.TK_LIBRARY = null }
+    if $layer.virtual_env_present { $env.VIRTUAL_ENV = $layer.virtual_env } else { $env.VIRTUAL_ENV = null }
+    if $layer.virtual_env_prompt_present { $env.VIRTUAL_ENV_PROMPT = $layer.virtual_env_prompt } else { $env.VIRTUAL_ENV_PROMPT = null }
+    if $layer.prompt_command_present { $env.PROMPT_COMMAND = $layer.prompt_command } else { $env.PROMPT_COMMAND = null }
+    if $layer.virtual_prefix_present { $env.VIRTUAL_PREFIX = $layer.virtual_prefix } else { $env.VIRTUAL_PREFIX = null }
+
+    if ($remaining | is-empty) {
+        $env._VIRTUAL_ENV_STACK = null
+    } else {
+        $env._VIRTUAL_ENV_STACK = $remaining
+    }
+}
+
 export alias pydoc = python -m pydoc
-# If deactivate errors "not an active overlay": activate with `overlay use activate.nu` not `use activate.nu *`; for custom names use `overlay hide NAME`
-export alias deactivate = overlay hide activate
+# The activate overlay can be unloaded completely (removing deactivate/pydoc) with `overlay hide activate`;
+# for custom names use `overlay hide NAME`

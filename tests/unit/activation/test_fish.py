@@ -49,16 +49,16 @@ def test_fish_tkinter_generation(tmp_path, tcl_lib, tk_lib, present) -> None:
 
     # THEN
     # PKG_CONFIG_PATH is always set
-    assert 'set -gx _OLD_PKG_CONFIG_PATH "$PKG_CONFIG_PATH"' in content
-    assert 'set -gx PKG_CONFIG_PATH "$VIRTUAL_ENV/lib/pkgconfig:$PKG_CONFIG_PATH"' in content
+    assert "set -gx _OLD_PKG_CONFIG_PATH $PKG_CONFIG_PATH" in content
+    assert 'set -gx PKG_CONFIG_PATH "$VIRTUAL_ENV/lib/pkgconfig" $PKG_CONFIG_PATH' in content
     assert "set -e _OLD_PKG_CONFIG_PATH" in content
 
     if present:
         assert "set -gx TCL_LIBRARY '/path/to/tcl'" in content
         assert "set -gx TK_LIBRARY '/path/to/tk'" in content
     else:
-        assert "if test -n ''\n  set -gx _OLD_VIRTUAL_TCL_LIBRARY" in content
-        assert "if test -n ''\n  set -gx _OLD_VIRTUAL_TK_LIBRARY" in content
+        assert "if test -n ''\n  set -g __v_tcm 1\n  if set -q TCL_LIBRARY" in content
+        assert "if test -n ''\n  set -g __v_tkm 1\n  if set -q TK_LIBRARY" in content
 
 
 @pytest.mark.skipif(IS_WIN, reason="fish is not available on Windows")
