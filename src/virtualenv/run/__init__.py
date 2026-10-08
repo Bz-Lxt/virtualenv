@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from virtualenv.app_data import make_app_data
 from virtualenv.config.cli.parser import VirtualEnvConfigParser, VirtualEnvOptions
+from virtualenv.events import EventStream
 from virtualenv.report import LEVELS, setup_report
 from virtualenv.run.session import Session
 from virtualenv.seed.wheels.periodic_update import manual_upgrade
@@ -68,6 +69,9 @@ def session_via_cli(
     parser, elements = build_parser(args, options, setup_logging, env)
     options = parser.parse_args(args)  # ty: ignore[invalid-assignment]
     options.py_version = parser._interpreter.version_info  # ruff:ignore[private-member-access]  # ty: ignore[invalid-assignment, unresolved-attribute]
+    event_stream = getattr(options, "event_stream", None)
+    if not isinstance(event_stream, EventStream):
+        event_stream = EventStream()
     creator, seeder, activators = tuple(
         e.create(options)  # ty: ignore[invalid-argument-type]
         for e in elements
@@ -79,6 +83,7 @@ def session_via_cli(
         creator,  # ty: ignore[invalid-argument-type]
         seeder,  # ty: ignore[invalid-argument-type]
         activators,  # ty: ignore[invalid-argument-type]
+        event_stream,
     )
 
 

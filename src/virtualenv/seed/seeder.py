@@ -11,10 +11,14 @@ if TYPE_CHECKING:
     from virtualenv.app_data.base import AppData
     from virtualenv.config.cli.parser import VirtualEnvOptions
     from virtualenv.create.creator import Creator
+    from virtualenv.events import EventStream
 
 
 class Seeder(ABC):
     """A seeder will install some seed packages into a virtual environment."""
+
+    #: structured event stream; the owning Session assigns its shared stream before :meth:`run`
+    event_stream: EventStream | None
 
     def __init__(self, options: VirtualEnvOptions, enabled: bool) -> None:
         """Create.
@@ -25,6 +29,7 @@ class Seeder(ABC):
         """
         self.enabled = enabled
         self.env = options.env
+        self.event_stream = getattr(options, "event_stream", None)
 
     @classmethod
     def cannot_seed(cls, interpreter: PythonInfo) -> str | None:  # ruff:ignore[unused-class-method-argument]

@@ -6,6 +6,7 @@ from argparse import SUPPRESS
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from virtualenv.events import EventStream
 from virtualenv.seed.seeder import Seeder
 from virtualenv.seed.wheels import Version
 from virtualenv.seed.wheels.embed import MIN, OLDEST_SUPPORTED
@@ -40,6 +41,8 @@ class BaseEmbed(Seeder, ABC):
         self.no_setuptools = options.no_setuptools
         self.app_data = options.app_data
         self.periodic_update = not options.no_periodic_update
+        # structured event stream; the owning Session replaces this with its shared stream when present
+        self.event_stream = getattr(options, "event_stream", None) or EventStream()
 
         if options.wheel is not None or options.no_wheel:
             LOGGER.warning(

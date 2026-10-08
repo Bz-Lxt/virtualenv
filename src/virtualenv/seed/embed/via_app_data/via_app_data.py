@@ -11,6 +11,14 @@ from subprocess import CalledProcessError
 from threading import Lock, Thread
 from typing import TYPE_CHECKING
 
+from virtualenv.events import (
+    SeedTaskFailed,
+    SeedTaskInstallCompleted,
+    SeedTaskInstallStarted,
+    SeedTaskStarted,
+    SeedTaskWheelAcquired,
+    describe_exception,
+)
 from virtualenv.info import fs_supports_symlink
 from virtualenv.seed.embed.base_embed import BaseEmbed
 from virtualenv.seed.wheels import get_wheel
@@ -56,6 +64,8 @@ class FromAppData(BaseEmbed):
     def run(self, creator: Creator) -> None:
         if not self.enabled:
             return
+        events = self.event_stream
+        assert events is not None  # ruff:ignore[assert] - Session shares its stream before run
         with self._get_seed_wheels(creator) as name_to_whl:
             pip_version = name_to_whl["pip"].version_tuple if "pip" in name_to_whl else None
             installer_class = self.installer_class(pip_version)
@@ -63,14 +73,28 @@ class FromAppData(BaseEmbed):
 
             def _install(name: str, wheel: Wheel) -> None:
                 LOGGER.debug("install %s from wheel %s via %s", name, wheel, installer_class.__name__)
+                events.publish(SeedTaskInstallStarted(distribution=name, path=str(wheel.path)))
                 try:
                     key = Path(installer_class.__name__) / wheel.path.stem
                     wheel_img = self.app_data.wheel_image(creator.interpreter.version_release_str, key)
                     installer = installer_class(wheel.path, creator, wheel_img)
                     _build_wheel_image(self.app_data.lock / wheel_img.parent, wheel_img.name, installer)
                     installer.install(creator.interpreter.version_info)  # ty: ignore[invalid-argument-type]
-                except Exception:  # ruff:ignore[blind-except]
+                except Exception as exception:  # ruff:ignore[blind-except]
                     exceptions[name] = sys.exc_info()
+                    details = describe_exception(exception)
+                    events.publish(
+                        SeedTaskFailed(
+                            distribution=name,
+                            error_type=str(details["error_type"]),
+                            error_message=str(details["error_message"]),
+                            traceback=details["traceback"],
+                        ),
+                    )
+                else:
+                    events.publish(
+                        SeedTaskInstallCompleted(distribution=name, path=str(wheel.path)),
+                    )
 
             threads = [Thread(target=_install, args=(n, w)) for n, w in name_to_whl.items()]
             for thread in threads:
@@ -87,8 +111,13 @@ class FromAppData(BaseEmbed):
     @contextmanager
     def _get_seed_wheels(self, creator: Creator) -> Generator[dict[str, Wheel], None, None]:  # ruff:ignore[complex-structure]
         name_to_whl, lock, fail = {}, Lock(), {}
+        events = self.event_stream
+        assert events is not None  # ruff:ignore[assert] - Session shares its stream before run
 
         def _get(distribution: str, version: str | None) -> None:
+            events.publish(
+                SeedTaskStarted(distribution=distribution, requested_version=version),
+            )
             for_py_version = creator.interpreter.version_release_str
             failure, result = None, None
             # fallback to download in case the exact version is not available
@@ -123,9 +152,26 @@ class FromAppData(BaseEmbed):
                 else:
                     msg = repr(failure)
                 LOGGER.error(msg)
+                details = describe_exception(failure)
+                events.publish(
+                    SeedTaskFailed(
+                        distribution=distribution,
+                        error_type=str(details["error_type"]),
+                        error_message=msg,
+                        traceback=details["traceback"],
+                    ),
+                )
                 with lock:
                     fail[distribution] = version
             else:
+                assert result is not None  # loop breaks as soon as a wheel is acquired  # ruff:ignore[assert]
+                events.publish(
+                    SeedTaskWheelAcquired(
+                        distribution=distribution,
+                        version=result.version,
+                        path=str(result.path),
+                    ),
+                )
                 with lock:
                     name_to_whl[distribution] = result
 

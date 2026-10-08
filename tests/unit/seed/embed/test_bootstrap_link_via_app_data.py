@@ -13,8 +13,19 @@ import pytest
 from python_discovery import PythonInfo
 from python_discovery import _cached_py_info as cached_py_info
 
+from virtualenv.events import (
+    STAGE_SEED,
+    Event,
+    SeedTaskInstallCompleted,
+    SeedTaskInstallStarted,
+    SeedTaskStarted,
+    SeedTaskWheelAcquired,
+    SessionSucceeded,
+    StageCompleted,
+    StageStarted,
+)
 from virtualenv.info import fs_supports_symlink
-from virtualenv.run import cli_run
+from virtualenv.run import cli_run, session_via_cli
 from virtualenv.seed.embed.via_app_data.pip_install.base import _safe_extract_zip
 from virtualenv.seed.wheels.embed import BUNDLE_FOLDER, BUNDLE_SUPPORT
 from virtualenv.util.path import safe_delete
@@ -224,6 +235,40 @@ def test_base_bootstrap_link_via_app_data_no(tmp_path, pkg) -> None:
 def test_app_data_parallel_ok(tmp_path) -> None:
     exceptions = _run_parallel_threads(tmp_path)
     assert not exceptions, "\n".join(exceptions)
+
+
+@pytest.mark.usefixtures("temp_app_data")
+def test_app_data_structured_events(tmp_path: Path) -> None:
+    session = session_via_cli(["--seeder", "app-data", "--no-setuptools", str(tmp_path / "venv")])
+    recorded: list[Event] = []
+    session.events.subscribe(recorded.append)
+    with session:
+        session.run()
+
+    # gapless total order even though the seed workers run on threads
+    assert [event.seq for event in recorded] == list(range(1, len(recorded) + 1))
+
+    seed_events = [event for event in recorded if getattr(event, "stage", None) == STAGE_SEED]
+    assert any(isinstance(event, StageStarted) for event in seed_events)
+    assert any(isinstance(event, StageCompleted) for event in seed_events)
+
+    pip_starts = [event for event in recorded if isinstance(event, SeedTaskStarted) and event.distribution == "pip"]
+    assert len(pip_starts) == 1
+    assert pip_starts[0].requested_version == "bundle"
+    acquired = [event for event in recorded if isinstance(event, SeedTaskWheelAcquired) and event.distribution == "pip"]
+    assert len(acquired) == 1
+    assert acquired[0].version
+    assert [event for event in recorded if isinstance(event, SeedTaskInstallStarted) and event.distribution == "pip"]
+    assert [event for event in recorded if isinstance(event, SeedTaskInstallCompleted) and event.distribution == "pip"]
+
+    terminal = [event for event in recorded if event.is_terminal]
+    assert len(terminal) == 1
+    assert isinstance(terminal[0], SessionSucceeded)
+    assert recorded[-1] is terminal[0]
+
+    # after the session exits the stream is closed and cannot deliver late events
+    assert session.events.closed
+    assert session.events.publish(StageStarted(stage=STAGE_SEED)) is False
 
 
 @pytest.mark.usefixtures("temp_app_data")
