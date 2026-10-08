@@ -20,7 +20,7 @@ from .pip_install.symlink import SymlinkPipInstall
 
 if TYPE_CHECKING:
     from argparse import ArgumentParser
-    from collections.abc import Generator
+    from collections.abc import Generator, Mapping
 
     from python_discovery import PythonInfo
 
@@ -39,6 +39,9 @@ class FromAppData(BaseEmbed):
     def __init__(self, options: VirtualEnvOptions) -> None:
         super().__init__(options)
         self.symlinks = options.symlink_app_data
+        #: when set, :meth:`run` installs exactly these wheels (already verified against a creation spec) and skips
+        #: both periodic update and download, guaranteeing a deterministic replay
+        self._pinned_wheels: Mapping[str, Wheel] | None = None
 
     @classmethod
     def add_parser_arguments(cls, parser: ArgumentParser, interpreter: PythonInfo, app_data: AppData) -> None:
@@ -53,36 +56,50 @@ class FromAppData(BaseEmbed):
             default=False,
         )
 
+    def resolve_artifacts(self, creator: Creator) -> Mapping[str, Wheel]:
+        """Resolve the concrete seed wheels this seeder would install (bundle, search dir or download)."""
+        with self._get_seed_wheels(creator) as name_to_whl:
+            return dict(name_to_whl)
+
+    def pin_artifacts(self, artifacts: Mapping[str, Wheel]) -> None:
+        self._pinned_wheels = dict(artifacts)
+
     def run(self, creator: Creator) -> None:
         if not self.enabled:
             return
+        if self._pinned_wheels is not None:
+            self._install_wheels(creator, self._pinned_wheels)
+            return
         with self._get_seed_wheels(creator) as name_to_whl:
-            pip_version = name_to_whl["pip"].version_tuple if "pip" in name_to_whl else None
-            installer_class = self.installer_class(pip_version)
-            exceptions = {}
+            self._install_wheels(creator, name_to_whl)
 
-            def _install(name: str, wheel: Wheel) -> None:
-                LOGGER.debug("install %s from wheel %s via %s", name, wheel, installer_class.__name__)
-                try:
-                    key = Path(installer_class.__name__) / wheel.path.stem
-                    wheel_img = self.app_data.wheel_image(creator.interpreter.version_release_str, key)
-                    installer = installer_class(wheel.path, creator, wheel_img)
-                    _build_wheel_image(self.app_data.lock / wheel_img.parent, wheel_img.name, installer)
-                    installer.install(creator.interpreter.version_info)  # ty: ignore[invalid-argument-type]
-                except Exception:  # ruff:ignore[blind-except]
-                    exceptions[name] = sys.exc_info()
+    def _install_wheels(self, creator: Creator, name_to_whl: Mapping[str, Wheel]) -> None:
+        pip_version = name_to_whl["pip"].version_tuple if "pip" in name_to_whl else None
+        installer_class = self.installer_class(pip_version)
+        exceptions = {}
 
-            threads = [Thread(target=_install, args=(n, w)) for n, w in name_to_whl.items()]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join()
-            if exceptions:
-                messages = [f"failed to build image {', '.join(exceptions.keys())} because:"]
-                for value in exceptions.values():
-                    exc_type, exc_value, exc_traceback = value
-                    messages.append("".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
-                raise RuntimeError("\n".join(messages))
+        def _install(name: str, wheel: Wheel) -> None:
+            LOGGER.debug("install %s from wheel %s via %s", name, wheel, installer_class.__name__)
+            try:
+                key = Path(installer_class.__name__) / wheel.path.stem
+                wheel_img = self.app_data.wheel_image(creator.interpreter.version_release_str, key)
+                installer = installer_class(wheel.path, creator, wheel_img)
+                _build_wheel_image(self.app_data.lock / wheel_img.parent, wheel_img.name, installer)
+                installer.install(creator.interpreter.version_info)  # ty: ignore[invalid-argument-type]
+            except Exception:  # ruff:ignore[blind-except]
+                exceptions[name] = sys.exc_info()
+
+        threads = [Thread(target=_install, args=(n, w)) for n, w in name_to_whl.items()]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        if exceptions:
+            messages = [f"failed to build image {', '.join(exceptions.keys())} because:"]
+            for value in exceptions.values():
+                exc_type, exc_value, exc_traceback = value
+                messages.append("".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+            raise RuntimeError("\n".join(messages))
 
     @contextmanager
     def _get_seed_wheels(self, creator: Creator) -> Generator[dict[str, Wheel], None, None]:  # ruff:ignore[complex-structure]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from argparse import ArgumentParser
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -19,8 +20,11 @@ from .plugin.seeders import SeederSelector
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
+    from os import PathLike
 
     from .plugin.base import ComponentBuilder
+
+LOGGER = logging.getLogger(__name__)
 
 
 def cli_run(
@@ -41,7 +45,18 @@ def cli_run(
 
     """
     env = os.environ if env is None else env
-    of_session = session_via_cli(args, options, setup_logging, env)
+    export_spec_path, from_spec_path = _parse_spec_mode(args)
+    if from_spec_path is not None:
+        # the specification fully replaces parsed options; the object passed from run_with_catch is ignored
+        of_session = session_via_spec(from_spec_path, setup_logging=setup_logging, env=env)
+    else:
+        of_session = session_via_cli(args, options, setup_logging, env)
+        if export_spec_path is not None:
+            resolved_options = of_session.options
+            assert resolved_options is not None  # set by session_via_cli  # ruff:ignore[assert]
+            export_creation_spec(of_session, resolved_options, export_spec_path)
+            # exporting is a planning operation: like --upgrade-embed-wheels it exits without creating anything
+            raise SystemExit(0)
     with of_session:
         of_session.run()
     return of_session
@@ -64,7 +79,16 @@ def session_via_cli(
         notice)
 
     """
-    env = os.environ if env is None else env
+    session, _ = _session_via_cli(args, options, setup_logging, env)
+    return session
+
+
+def _session_via_cli(
+    args: list[str],
+    options: VirtualEnvOptions | None,
+    setup_logging: bool,
+    env: MutableMapping[str, str],
+) -> tuple[Session, VirtualEnvOptions]:
     parser, elements = build_parser(args, options, setup_logging, env)
     options = parser.parse_args(args)  # ty: ignore[invalid-assignment]
     options.py_version = parser._interpreter.version_info  # ruff:ignore[private-member-access]  # ty: ignore[invalid-assignment, unresolved-attribute]
@@ -72,13 +96,101 @@ def session_via_cli(
         e.create(options)  # ty: ignore[invalid-argument-type]
         for e in elements
     )  # create types
-    return Session(
+    session = Session(
         options.verbosity,  # ty: ignore[unresolved-attribute, invalid-argument-type]
         options.app_data,  # ty: ignore[unresolved-attribute]
         parser._interpreter,  # ruff:ignore[private-member-access]  # ty: ignore[invalid-argument-type]
         creator,  # ty: ignore[invalid-argument-type]
         seeder,  # ty: ignore[invalid-argument-type]
         activators,  # ty: ignore[invalid-argument-type]
+    )
+    session.options = options
+    return session, options
+
+
+def session_via_spec(
+    path: str | PathLike[str],
+    setup_logging: bool = True,  # ruff:ignore[boolean-default-value-positional-argument]
+    env: MutableMapping[str, str] | None = None,
+) -> Session:
+    """Replay a previously exported creation specification into a resolved (but not yet created) session.
+
+    The recorded interpreter and seed artifacts are re-verified and a :class:`~virtualenv.run.spec.SpecDriftError`
+    is raised when any of them have drifted; no discovery or configuration lookup happens, so configuration sources,
+    plugins or package releases cannot change what gets created.
+
+    :param path: path to the creation specification JSON file
+    :param setup_logging: ``True`` if setup logging handlers, ``False`` to use handlers already registered
+    :param env: environment variables to use
+
+    :returns: the session object resolved from the specification
+
+    """
+    from virtualenv.run.spec import CreationSpec  # ruff:ignore[import-outside-top-level]
+
+    env = os.environ if env is None else env
+    spec = CreationSpec.load(path)
+    if setup_logging:
+        # the verbosity of an export belongs to that invocation, not to the environment; replay reports at the default
+        # level so drift errors are always surfaced
+        setup_report(2)
+    LOGGER.info("replay virtual environment from creation spec %s", path)
+    return spec.build_session(env)
+
+
+def export_creation_spec(
+    session: Session,
+    options: VirtualEnvOptions,
+    path: str | PathLike[str],
+) -> str:
+    """Capture the resolved creation specification of a planned session and write it to ``path``.
+
+    This resolves the seed packages but does not create the destination environment.
+
+    :returns: the path the specification was written to
+
+    """
+    from virtualenv.run.spec import CreationSpec  # ruff:ignore[import-outside-top-level]
+
+    target = str(CreationSpec.capture(session, options).save(path))
+    LOGGER.warning("exported resolved creation spec to %s; no environment was created", target)
+    return target
+
+
+def _parse_spec_mode(args: list[str]) -> tuple[str | None, str | None]:
+    """Extract ``--export-spec``/``--from-spec`` without running the full parser and discovery."""
+    pre_parser = ArgumentParser(add_help=False)
+    add_spec_flags(pre_parser)
+    namespace, _ = pre_parser.parse_known_args(args)
+    return namespace.export_spec, namespace.from_spec
+
+
+def add_spec_flags(parser: ArgumentParser) -> None:
+    """Register the creation specification flags on a parser."""
+    group = parser.add_argument_group(
+        title="creation spec",
+        description="export the resolved creation specification, or replay an environment from an exported one",
+    )
+    spec_group = group.add_mutually_exclusive_group()
+    spec_group.add_argument(
+        "--export-spec",
+        dest="export_spec",
+        metavar="path",
+        default=None,
+        help=(
+            "resolve the interpreter, plugins and seed packages, write the deterministic creation specification to "
+            "this path and exit without creating the environment"
+        ),
+    )
+    spec_group.add_argument(
+        "--from-spec",
+        dest="from_spec",
+        metavar="path",
+        default=None,
+        help=(
+            "create the environment exactly as recorded in a previously exported creation specification; the "
+            "interpreter and seed artifacts are re-verified and creation is refused if they drifted"
+        ),
     )
 
 
@@ -90,6 +202,7 @@ def build_parser(
 ) -> tuple[VirtualEnvConfigParser, list[ComponentBuilder]]:
     parser = VirtualEnvConfigParser(options, os.environ if env is None else env)
     add_version_flag(parser)
+    add_spec_flags(parser)
     parser.add_argument(
         "--with-traceback",
         dest="with_traceback",
@@ -193,5 +306,7 @@ def _do_report_setup(parser: VirtualEnvConfigParser, args: list[str] | None, set
 
 __all__ = [
     "cli_run",
+    "export_creation_spec",
     "session_via_cli",
+    "session_via_spec",
 ]

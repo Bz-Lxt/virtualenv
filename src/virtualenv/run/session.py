@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
     from virtualenv.activation.activator import Activator
     from virtualenv.app_data.base import AppData
+    from virtualenv.config.cli.parser import VirtualEnvOptions
     from virtualenv.create.creator import Creator
     from virtualenv.seed.seeder import Seeder
 
@@ -41,6 +42,9 @@ class Session:
         self._creator = creator
         self._seeder = seeder
         self._activators = activators
+        #: the fully resolved options the session was built from (config sources already folded in); populated by the
+        #: CLI/API builders and used when exporting a creation spec. ``None`` for sessions assembled directly.
+        self.options: VirtualEnvOptions | None = None
 
     @property
     def verbosity(self) -> int:

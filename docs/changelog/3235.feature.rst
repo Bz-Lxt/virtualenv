@@ -1,0 +1,6 @@
+Add ``--export-spec`` to write a resolved, deterministic creation specification (concrete configuration with its
+provenance, selected creator/seeder/activator plugins, an interpreter fingerprint and every seed wheel pinned by path
+and SHA-256) without creating the environment, and ``--from-spec`` to replay that specification losslessly in another
+process. Replay re-verifies the interpreter and seed artifacts against the recorded fingerprints and refuses to create
+when either has drifted, so configuration sources, plugin entry points, interpreter discovery and seed package updates
+can no longer silently change the resulting environment
