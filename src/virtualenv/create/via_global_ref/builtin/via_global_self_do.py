@@ -112,13 +112,13 @@ class ViaGlobalRefVirtualenvBuiltin(ViaGlobalRefApi, VirtualenvBuiltin, ABC):
 
     @property
     def include_dir(self) -> Path:
-        return self.dest / ("Include" if self.interpreter.os == "nt" else "include")
+        return self.root / ("Include" if self.interpreter.os == "nt" else "include")
 
     def install_venv_shared_libs(self, venv_creator: Venv) -> None:
         pass
 
     def ensure_directories(self) -> set[Path]:
-        return {self.dest, self.bin_dir, self.script_dir, self.stdlib, self.include_dir} | set(self.libs)
+        return {self.root, self.bin_dir, self.script_dir, self.stdlib, self.include_dir} | set(self.libs)
 
     def set_pyenv_cfg(self) -> None:
         """We directly inject the base prefix and base exec prefix to avoid site.py needing to discover these from home (which usually is done within the interpreter itself)."""

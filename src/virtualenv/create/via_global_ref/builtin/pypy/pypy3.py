@@ -36,7 +36,7 @@ class PyPy3Posix(PyPy3, PosixSupports):
         return python_dir.glob("libpypy3*.*")
 
     def to_lib(self, src: Path) -> Path:
-        return self.dest / "lib" / src.name
+        return self.root / "lib" / src.name
 
     @classmethod
     def sources(cls, interpreter: PythonInfo) -> Generator[PathRef]:

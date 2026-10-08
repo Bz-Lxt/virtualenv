@@ -52,12 +52,45 @@ class Creator(ABC):
         self.interpreter = interpreter
         self._debug = None
         self.dest = Path(options.dest)
+        # physical build location; redirected to a staging directory while the atomic transaction runs, see
+        # :meth:`redirect`
+        self._root = self.dest
         self.clear = options.clear
         self.no_vcs_ignore = options.no_vcs_ignore
-        self.pyenv_cfg = PyEnvCfg.from_folder(self.dest)
+        self.pyenv_cfg = PyEnvCfg.from_folder(self._root)
         self.app_data = options.app_data
         self.env = options.env
         self.prompt = getattr(options, "prompt", None)
+
+    @property
+    def root(self) -> Path:
+        """The directory the environment is physically written to right now.
+
+        Equals :attr:`dest` for regular builds; while an atomic transaction is active it points at a temporary
+        staging directory and is moved back to :attr:`dest` once the environment is published.
+        """
+        return self._root
+
+    def redirect(self, root: Path) -> None:
+        """Build the environment at ``root`` instead of :attr:`dest`.
+
+        File system writes (directories, scripts, ``pyvenv.cfg``) follow the new root, while paths advertised inside
+        the environment (activation scripts, ``pyvenv.cfg`` command, prompt name) keep using :attr:`dest`.
+        """
+        root = Path(root)
+        self._root = root
+        # cached debug output embeds absolute paths of the old root (e.g. the staging directory)
+        self._debug = None
+        describe = getattr(self, "describe", None)
+        if describe is not None and describe is not self:
+            describe._root = root
+            # cached path derivations must follow the new root
+            describe._conf_vars = None
+            describe._stdlib = None
+            describe._stdlib_platform = None
+            describe._debug = None
+            describe.pyenv_cfg = PyEnvCfg.from_folder(root)
+        self.pyenv_cfg = PyEnvCfg.from_folder(root)
 
     if TYPE_CHECKING:
 
@@ -196,9 +229,9 @@ class Creator(ABC):
         return str(value)
 
     def run(self) -> None:
-        if self.dest.exists() and self.clear:
-            LOGGER.debug("delete %s", self.dest)
-            safe_delete(self.dest)
+        if self.root.exists() and self.clear:
+            LOGGER.debug("delete %s", self.root)
+            safe_delete(self.root)
         self.create()
         self.add_cachedir_tag()
         self.set_pyenv_cfg()
@@ -207,7 +240,7 @@ class Creator(ABC):
 
     def add_cachedir_tag(self) -> None:
         """Generate a file indicating that this is not meant to be backed up."""
-        cachedir_tag_file = self.dest / "CACHEDIR.TAG"
+        cachedir_tag_file = self.root / "CACHEDIR.TAG"
         if not cachedir_tag_file.exists():
             cachedir_tag_text = textwrap.dedent("""
                 Signature: 8a477f597d28d172789f06886806bc55
@@ -235,7 +268,7 @@ class Creator(ABC):
     def setup_ignore_vcs(self) -> None:
         """Generate ignore instructions for version control systems."""
         # mark this folder to be ignored by VCS, handle https://www.python.org/dev/peps/pep-0610/#registered-vcs
-        git_ignore = self.dest / ".gitignore"
+        git_ignore = self.root / ".gitignore"
         if not git_ignore.exists():
             git_ignore.write_text("# created by virtualenv automatically\n*\n", encoding="utf-8")
         # Mercurial - does not support the .hgignore file inside a subdirectory directly, but only if included via the

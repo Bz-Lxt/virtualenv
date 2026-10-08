@@ -85,7 +85,7 @@ class CPython3macOsFramework(CPythonmacOsFramework, CPython3, CPythonPosix):
 
         # add a symlink to the host python image
         exe = Path(interpreter.prefix) / "Python3"  # ty: ignore[invalid-argument-type]
-        yield PathRefToDest(exe, dest=lambda self, _: self.dest / ".Python", must=RefMust.SYMLINK)
+        yield PathRefToDest(exe, dest=lambda self, _: self.root / ".Python", must=RefMust.SYMLINK)
 
     @property
     def reload_code(self) -> str:

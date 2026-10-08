@@ -21,10 +21,19 @@ class Describe:
     def __init__(self, dest: Path, interpreter: PythonInfo) -> None:
         self.interpreter = interpreter
         self.dest = dest
+        # physical location of the environment on disk; equals ``dest`` unless the build is redirected into a
+        # staging directory by an atomic transaction (paths written to disk use ``root``, advertised paths use
+        # ``dest``)
+        self._root = dest
         self._stdlib = None
         self._stdlib_platform = None
         self._system_stdlib = None
         self._conf_vars = None
+
+    @property
+    def root(self) -> Path:
+        """The directory the environment is physically built at right now."""
+        return self._root
 
     @property
     def bin_dir(self) -> Path:
@@ -32,15 +41,15 @@ class Describe:
 
     @property
     def script_dir(self) -> Path:
-        return self.dest / self.interpreter.install_path("scripts")
+        return self.root / self.interpreter.install_path("scripts")
 
     @property
     def purelib(self) -> Path:
-        return self.dest / self.interpreter.install_path("purelib")
+        return self.root / self.interpreter.install_path("purelib")
 
     @property
     def platlib(self) -> Path:
-        return self.dest / self.interpreter.install_path("platlib")
+        return self.root / self.interpreter.install_path("platlib")
 
     @property
     def libs(self) -> list[Path]:
@@ -61,7 +70,7 @@ class Describe:
     @property
     def _config_vars(self) -> dict[str, Any]:
         if self._conf_vars is None:
-            self._conf_vars = self._calc_config_vars(self.dest)
+            self._conf_vars = self._calc_config_vars(self.root)
         return self._conf_vars
 
     def _calc_config_vars(self, to: Path) -> dict[str, Any]:

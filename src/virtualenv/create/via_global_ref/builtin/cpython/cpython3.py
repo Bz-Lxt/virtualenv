@@ -45,7 +45,7 @@ class CPython3Posix(CPythonPosix, CPython3):
 
     @classmethod
     def _to_lib(cls, creator: CPython3Posix, src: Path) -> Path:
-        return creator.dest / "lib" / src.name
+        return creator.root / "lib" / src.name
 
     @classmethod
     def _shared_libpython(cls, interpreter: PythonInfo) -> Path | None:
@@ -64,7 +64,7 @@ class CPython3Posix(CPythonPosix, CPython3):
             return
         if not (shared_lib := self._shared_libpython(venv_creator.interpreter)):
             return
-        dest = venv_creator.dest / "lib" / shared_lib.name
+        dest = venv_creator.root / "lib" / shared_lib.name
         ensure_dir(dest.parent)
         copy_path(shared_lib, dest)
 

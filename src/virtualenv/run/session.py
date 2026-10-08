@@ -5,6 +5,8 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
+from virtualenv.run.atomic import AtomicEnvironment
+
 if TYPE_CHECKING:
     from types import TracebackType
 
@@ -68,10 +70,15 @@ class Session:
         return self._activators
 
     def run(self) -> None:
-        self._create()
-        self._seed()
-        self._activate()
-        self.creator.pyenv_cfg.write()
+        # serialize concurrent creations targeting the same path and publish the destination only once creation,
+        # seeding and activation generation all succeeded (otherwise the original environment is preserved and no
+        # staging directory is left behind)
+        with AtomicEnvironment(self.creator) as atomic:
+            self._create()
+            self._seed()
+            self._activate()
+            self.creator.pyenv_cfg.write()
+            atomic.commit()
 
     def _create(self) -> None:
         LOGGER.info("create virtual environment via %s", self.creator)

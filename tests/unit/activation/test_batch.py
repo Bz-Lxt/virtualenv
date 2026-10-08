@@ -19,6 +19,7 @@ def test_batch_pydoc_bat_quoting(tmp_path) -> None:
     class MockCreator:
         def __init__(self, dest) -> None:
             self.dest = dest
+            self.root = dest
             self.bin_dir = dest / "Scripts"
             self.bin_dir.mkdir(parents=True)
             self.interpreter = MockInterpreter()
@@ -58,6 +59,7 @@ def test_batch_tkinter_generation(tmp_path, tcl_lib, tk_lib, present) -> None:
     class MockCreator:
         def __init__(self, dest) -> None:
             self.dest = dest
+            self.root = dest
             self.bin_dir = dest / "bin"
             self.bin_dir.mkdir()
             self.interpreter = interpreter

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from copy import copy
 from typing import TYPE_CHECKING
 
@@ -67,7 +68,7 @@ class Venv(ViaGlobalRefApi):
             symlinks=self.symlinks,
             with_pip=False,
         )
-        builder.create(str(self.dest))
+        builder.create(str(self.root))
 
     def create_via_sub_process(self) -> None:
         cmd = self.get_host_create_cmd()
@@ -82,7 +83,7 @@ class Venv(ViaGlobalRefApi):
             cmd.append("--without-scm-ignore-files")
         if self.enable_system_site_package:
             cmd.append("--system-site-packages")
-        cmd.extend(("--symlinks" if self.symlinks else "--copies", str(self.dest)))
+        cmd.extend(("--symlinks" if self.symlinks else "--copies", str(self.root)))
         return cmd  # ty: ignore[invalid-return-type]
 
     def set_pyenv_cfg(self) -> None:
@@ -90,6 +91,8 @@ class Venv(ViaGlobalRefApi):
         venv_content = copy(self.pyenv_cfg.refresh())
         super().set_pyenv_cfg()
         self.pyenv_cfg.update(venv_content)
+        # the host venv writes the physical (possibly staging) path; advertise the final destination instead
+        self.pyenv_cfg["command"] = f"{sys.executable} -m virtualenv {self.dest}"
 
     def __getattribute__(self, item: str) -> object:
         describe = object.__getattribute__(self, "describe")

@@ -29,6 +29,7 @@ def test_xonsh_tkinter_generation(tmp_path, tcl_lib, tk_lib, present) -> None:
 
     creator = create_autospec(Creator, instance=True)
     creator.dest = tmp_path
+    creator.root = tmp_path
     creator.bin_dir = bin_dir
     creator.interpreter = interpreter
     creator.pyenv_cfg = {}

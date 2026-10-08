@@ -29,6 +29,7 @@ def test_nushell_tkinter_generation(tmp_path) -> None:
     class MockCreator:
         def __init__(self, dest) -> None:
             self.dest = dest
+            self.root = dest
             self.bin_dir = dest / "bin"
             self.bin_dir.mkdir()
             self.interpreter = interpreter

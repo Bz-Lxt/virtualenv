@@ -20,6 +20,7 @@ def test_python_activator_generates_pkg_config_path(tmp_path) -> None:
     class MockCreator:
         def __init__(self, dest) -> None:
             self.dest = dest
+            self.root = dest
             self.bin_dir = dest / ("Scripts" if IS_WIN else "bin")
             self.bin_dir.mkdir(parents=True)
             self.libs = [dest / "Lib" / "site-packages"]

@@ -30,6 +30,7 @@ def test_cshell_tkinter_generation(tmp_path, tcl_lib, tk_lib, present) -> None:
     class MockCreator:
         def __init__(self, dest) -> None:
             self.dest = dest
+            self.root = dest
             self.bin_dir = dest / "bin"
             self.bin_dir.mkdir()
             self.interpreter = interpreter
